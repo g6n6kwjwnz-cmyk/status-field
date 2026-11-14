@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f4e79">
+<title>Status Report Field</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Status Field">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar">
+  <button id="btnBack" class="icon hidden" aria-label="Back">&#8592;</button>
+  <h1 id="title">Status report</h1>
+  <button id="btnSettings" class="icon" aria-label="Settings">&#9881;</button>
+</header>
+
+<main>
+  <!-- LIST OF REFERENCES -->
+  <section id="viewList">
+    <div id="noRefs" class="card hidden">
+      <p><b>No references loaded yet.</b></p>
+      <p>In Excel: ribbon <i>Dashboard Timing &gt; Refs for mobile</i>. Send the file <code>refs_mobile.json</code> to this phone (OneDrive, Teams, e-mail) and load it here.</p>
+      <label class="btn primary">Load references file<input type="file" id="fileRefs" accept=".json,application/json" hidden></label>
+      <button class="btn" id="btnDemo">Try with demo references</button>
+    </div>
+    <div id="oldFile" class="card warn hidden">
+      <p><b>This list has the references of several people.</b> Load your personal file (<code>refs_mobile_&lt;your name&gt;.json</code>).</p>
+      <label class="btn primary">Load my references file<input type="file" id="fileRefs3" accept=".json,application/json" hidden></label>
+    </div>
+    <div id="listTools" class="hidden">
+      <input type="search" id="search" placeholder="Search reference, project, supplier..." autocomplete="off">
+      <label class="chk"><input type="checkbox" id="onlyDraft"> Only with report</label>
+    </div>
+    <ul id="refList" class="list"></ul>
+  </section>
+
+  <!-- ONE REFERENCE -->
+  <section id="viewRef" class="hidden">
+    <div class="card refhead refcard">
+      <button class="ibtn" type="button" id="btnInfoRef" aria-label="Information">i</button>
+      <img id="refThumb" class="bigthumb hidden" alt="">
+      <div id="refName" class="refname"></div>
+      <div id="refSub" class="muted"></div>
+    </div>
+
+    <h2>Status</h2>
+    <div id="statusGrid" class="status"></div>
+
+    <h2>Tool advance photos <span id="photoCount" class="muted"></span></h2>
+    <div class="row">
+      <label class="btn primary grow">&#128247; Take photo<input type="file" id="filePhotoCam" accept="image/*" capture="environment" hidden></label>
+      <label class="btn grow">&#128444; Gallery<input type="file" id="filePhotoGal" accept="image/*" multiple hidden></label>
+    </div>
+    <p class="muted small">Choose the component of each photo: it is written on the photo in the Status report.</p>
+    <div id="photos" class="photos"></div>
+
+    <h2>Comments</h2>
+    <textarea id="txtCom" rows="4" placeholder="What happened this week..."></textarea>
+    <h2>C. Fixture</h2>
+    <textarea id="txtCF" rows="2"></textarea>
+    <div id="boxCF" class="box"></div>
+    <h2>Material</h2>
+    <textarea id="txtMat" rows="2"></textarea>
+    <div id="boxMat" class="box"></div>
+
+    <button class="btn danger" id="btnClearRef">Clear this report</button>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="viewSettings" class="hidden">
+    <h2>Your name</h2>
+    <input type="text" id="txtAuthor" placeholder="As in the Dashboard (e.g. Carrie)">
+    <p class="muted small">It is saved as "By" in the comments.</p>
+    <h2>References</h2>
+    <p id="refsInfo" class="muted"></p>
+    <label class="btn">Load a new references file<input type="file" id="fileRefs2" accept=".json,application/json" hidden></label>
+    <h2>Reports</h2>
+    <label class="btn">Open a report (.zip)<input type="file" id="fileReport" accept=".zip,application/zip" hidden></label>
+    <p class="muted small">The same file you send to Excel. Received by e-mail or Bluetooth, it is in <i>Downloads</i>.</p>
+    <button class="btn danger" id="btnClearAll">Delete all reports on this phone</button>
+    <p class="muted small" id="appVersion"></p>
+  </section>
+  <!-- VIEW A REPORT -->
+  <section id="viewReport" class="hidden">
+    <div id="reportBody"></div>
+  </section>
+</main>
+
+<footer id="footer" class="foot hidden">
+  <button class="btn primary wide" id="btnExport">Send report</button>
+</footer>
+
+<div id="toast" class="toast hidden"></div>
+
+<!-- Dialog (no browser alerts) -->
+<div id="dlg" class="dlg hidden" role="dialog" aria-modal="true">
+  <div class="dlgbox">
+    <div id="dlgText"></div>
+    <input type="text" id="dlgInput" class="hidden">
+    <div class="row end">
+      <button class="btn" id="dlgNo">Cancel</button>
+      <button class="btn primary" id="dlgYes">OK</button>
+    </div>
+  </div>
+</div>
+
+<script src="zip.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
