@@ -3,7 +3,7 @@
 // "Mobile Import" (modMovil) loads into the Status report.
 "use strict";
 
-const APP_VERSION = "0.7.0";
+const APP_VERSION = "0.8.0";
 const MAX_PHOTOS = 12;                 // same limit as the Status report (MAX_FOTOS_TOOL)
 const PHOTO_MAX_SIDE = 1600;           // px, enough for a slide and light to send
 const PHOTO_QUALITY = 0.85;
@@ -604,6 +604,25 @@ async function openReport(file) {
   }
 }
 
+// File shared to the app from another app (Android share menu, see sw.js)
+async function openShared() {
+  if (!location.search.includes("shared=1") || !("caches" in window)) return;
+  history.replaceState(null, "", location.pathname);
+  try {
+    const c = await caches.open("status-field-shared");
+    const r = await c.match("./shared-file");
+    if (!r) return;
+    await c.delete("./shared-file");
+    const name = decodeURIComponent(r.headers.get("X-File-Name") || "shared");
+    const blob = await r.blob();
+    const head = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
+    if (head[0] === 0x50 && head[1] === 0x4b) await openReport(new File([blob], name));   // "PK" = .zip report
+    else await loadRefsFromText(await blob.text());                                       // references .json
+  } catch (e) {
+    await ask(`<b>The shared file could not be opened.</b><br>${esc(e.message)}`, { cancel: "" });
+  }
+}
+
 // ---------------- Wiring ----------------
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 async function flushTexts() {
@@ -661,6 +680,7 @@ async function init() {
 
   await renderList();
   show("viewList");
+  await openShared();
 
   // Offline + install (only over http(s); opened as a file it works without it)
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
