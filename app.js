@@ -3,7 +3,7 @@
 // "Mobile Import" (modMovil) loads into the Status report.
 "use strict";
 
-const APP_VERSION = "0.6.0";
+const APP_VERSION = "0.7.0";
 const MAX_PHOTOS = 12;                 // same limit as the Status report (MAX_FOTOS_TOOL)
 const PHOTO_MAX_SIDE = 1600;           // px, enough for a slide and light to send
 const PHOTO_QUALITY = 0.85;
@@ -126,19 +126,22 @@ function toast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.add("hidden"), 3000);
 }
-function ask(html, { input = false, value = "", ok = "OK", cancel = "Cancel" } = {}) {
+function ask(html, { input = false, area = false, value = "", ok = "OK", cancel = "Cancel" } = {}) {
   return new Promise(res => {
     $("dlgText").innerHTML = html;
     $("dlgInput").classList.toggle("hidden", !input);
     $("dlgInput").value = value;
+    $("dlgArea").classList.toggle("hidden", !area);
+    $("dlgArea").value = "";
     $("dlgYes").textContent = ok;
     $("dlgNo").textContent = cancel;
     $("dlgNo").classList.toggle("hidden", !cancel);
     $("dlg").classList.remove("hidden");
     if (input) setTimeout(() => $("dlgInput").focus(), 50);
+    if (area) setTimeout(() => $("dlgArea").focus(), 50);
     const done = v => { $("dlg").classList.add("hidden"); $("dlgYes").onclick = $("dlgNo").onclick = null; res(v); };
-    $("dlgYes").onclick = () => done(input ? $("dlgInput").value : true);
-    $("dlgNo").onclick = () => done(input ? null : false);
+    $("dlgYes").onclick = () => done(area ? $("dlgArea").value : input ? $("dlgInput").value : true);
+    $("dlgNo").onclick = () => done(input || area ? null : false);
   });
 }
 
@@ -155,9 +158,25 @@ function show(view) {
 }
 
 // ---------------- References ----------------
-async function loadRefsFromFile(file) {
+async function loadRefsFromFile(file) { return loadRefsFromText(await file.text()); }
+
+// Copy / paste: the text of refs_mobile_<name>.json (e-mail, Notes, Teams...). Anything around the JSON is ignored.
+async function pasteRefs() {
+  let t = "";
+  try { if (navigator.clipboard && navigator.clipboard.readText) t = await navigator.clipboard.readText(); } catch (e) { t = ""; }
+  if (!t || t.indexOf('"refs"') < 0) {
+    t = await ask("<b>Paste the references</b><br>Long-press in the box and choose <i>Paste</i>.", { area: true, ok: "Load" });
+    if (!t) return;
+  }
+  await loadRefsFromText(t);
+}
+
+async function loadRefsFromText(text) {
   try {
-    const data = JSON.parse((await file.text()).replace(/^\uFEFF/, ""));
+    text = String(text || "").replace(/^\uFEFF/, "");
+    const a = text.indexOf("{"), b = text.lastIndexOf("}");
+    if (a < 0 || b < a) throw new Error("No references found in the text.");
+    const data = JSON.parse(text.slice(a, b + 1));
     if (!data || !Array.isArray(data.refs)) throw new Error("This is not a Dashboard Timing references file.");
     data.refs = data.refs.filter(r => r && r.id);
     await db.put("kv", data, "refs");
@@ -603,6 +622,8 @@ async function init() {
 
   $("fileRefs").onchange = e => e.target.files[0] && loadRefsFromFile(e.target.files[0]);
   $("fileRefs2").onchange = e => e.target.files[0] && loadRefsFromFile(e.target.files[0]);
+  $("btnPaste").onclick = () => pasteRefs();
+  $("btnPaste2").onclick = () => pasteRefs();
   $("fileReport").onchange = async e => { if (e.target.files[0]) await openReport(e.target.files[0]); e.target.value = ""; };
   $("fileRefs3").onchange = e => e.target.files[0] && loadRefsFromFile(e.target.files[0]);
   $("btnDemo").onclick = async () => { await db.put("kv", DEMO_REFS, "refs"); state.refs = DEMO_REFS; await renderList(); show("viewList"); };

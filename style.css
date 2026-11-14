@@ -79,3 +79,4 @@ table.info td { padding: 5px 0; overflow-wrap: anywhere; }
 .boxph { max-width: 320px; }
 .sub { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .rephead .sub, .refhead .sub { font-size: 14px; }
+.dlgbox textarea { margin-top: 10px; font-size: 13px; }

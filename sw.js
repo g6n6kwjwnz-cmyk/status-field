@@ -1,5 +1,5 @@
 // Offline cache: the app works on the shop floor without coverage.
-const CACHE = "status-field-v0.6.0";
+const CACHE = "status-field-v0.7.0";
 const FILES = ["./", "./index.html", "./style.css", "./app.js", "./zip.js", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener("activate", e => {

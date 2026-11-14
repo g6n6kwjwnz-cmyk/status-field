@@ -26,8 +26,9 @@
   <section id="viewList">
     <div id="noRefs" class="card hidden">
       <p><b>No references loaded yet.</b></p>
-      <p>In Excel: ribbon <i>Dashboard Timing &gt; Refs for mobile</i>. Send the file <code>refs_mobile.json</code> to this phone (OneDrive, Teams, e-mail) and load it here.</p>
+      <p>In Excel: ribbon <i>Dashboard Timing &gt; Refs for mobile</i>. Send your file <code>refs_mobile_&lt;name&gt;.json</code> to this phone and load it here, or copy its text and paste it.</p>
       <label class="btn primary">Load references file<input type="file" id="fileRefs" accept=".json,application/json" hidden></label>
+      <button class="btn" id="btnPaste">Paste references</button>
       <button class="btn" id="btnDemo">Try with demo references</button>
     </div>
     <div id="oldFile" class="card warn hidden">
@@ -81,6 +82,7 @@
     <h2>References</h2>
     <p id="refsInfo" class="muted"></p>
     <label class="btn">Load a new references file<input type="file" id="fileRefs2" accept=".json,application/json" hidden></label>
+    <button class="btn" id="btnPaste2">Paste references</button>
     <h2>Reports</h2>
     <label class="btn">Open a report (.zip)<input type="file" id="fileReport" accept=".zip,application/zip" hidden></label>
     <p class="muted small">The same file you send to Excel. Received by e-mail or Bluetooth, it is in <i>Downloads</i>.</p>
@@ -104,6 +106,7 @@
   <div class="dlgbox">
     <div id="dlgText"></div>
     <input type="text" id="dlgInput" class="hidden">
+    <textarea id="dlgArea" class="hidden" rows="6" placeholder="Paste here"></textarea>
     <div class="row end">
       <button class="btn" id="dlgNo">Cancel</button>
       <button class="btn primary" id="dlgYes">OK</button>
