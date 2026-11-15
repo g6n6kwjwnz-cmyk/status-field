@@ -99,3 +99,20 @@ table.dt td:last-child { white-space: normal; min-width: 140px; }
 table.dt th { color: var(--muted); font-weight: 600; }
 details.sec .item { padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
 details.sec .item:first-child { border-top: 0; }
+/* 0.10.0 photo selection + components list (like the PC) */
+.ph.sel { position: relative; cursor: pointer; border-width: 3px; -webkit-tap-highlight-color: transparent; user-select: none; }
+.ph.sel.on { border-color: #e00000; }
+.ph .tag { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.65); color: #fff; font-size: 13px; font-weight: 700; padding: 5px 8px; overflow-wrap: anywhere; }
+.ph .tag.none { font-weight: 400; font-style: italic; color: #ddd; background: rgba(0,0,0,.35); }
+.ph .tick { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; background: rgba(0,0,0,.25); color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.ph.sel.on .tick { background: #e00000; }
+.comppanel { margin-top: 10px; }
+.comppanel .row .btn { min-height: 38px; font-size: 14px; }
+.btn.danger { color: var(--danger); }
+.comps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.comp { font: inherit; font-size: 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--text); padding: 8px 12px; }
+.comp.on { border-color: var(--brand); background: var(--brand); color: #fff; }
+.comp.add { border-style: dashed; color: var(--brand); }
+.comp.clr { color: var(--muted); }
+.comp .x { margin-left: 4px; font-weight: 700; color: var(--muted); padding: 0 2px; }
+.comppanel .btn.danger { margin-top: 4px; }

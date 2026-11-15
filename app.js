@@ -3,7 +3,7 @@
 // "Mobile Import" (modMovil) loads into the Status report.
 "use strict";
 
-const APP_VERSION = "0.9.0";
+const APP_VERSION = "0.10.0";
 const MAX_PHOTOS = 12;                 // same limit as the Status report (MAX_FOTOS_TOOL)
 const PHOTO_MAX_SIDE = 1600;           // px, enough for a slide and light to send
 const PHOTO_QUALITY = 0.85;
@@ -468,37 +468,111 @@ function renderStatus(d) {
   }
 }
 
+// Components added by the user on this phone (kept between sessions)
+const CUSTOM_KEY = "sf.customComponents";
+function customComponents() {
+  try { const v = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "[]"); return Array.isArray(v) ? v.filter(x => typeof x === "string" && x.trim()) : []; }
+  catch { return []; }
+}
+function saveCustomComponents(list) {
+  try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(list)); } catch { }
+}
+function allComponents() {
+  const extra = customComponents().filter(c => !COMPONENTS.includes(c));
+  return [...COMPONENTS, ...extra].sort((a, b) => a.localeCompare(b));
+}
+
+// Like the PC: select photos (red), then tap their component. It is written on them.
+const photoSel = { ref: null, ids: new Set() };
+
 async function renderPhotos() {
   const list = (await db.toolPhotos(state.current)).sort((a, b) => a.taken.localeCompare(b.taken));
+  if (photoSel.ref !== state.current) { photoSel.ref = state.current; photoSel.ids.clear(); }
+  for (const id of [...photoSel.ids]) if (!list.some(p => p.id === id)) photoSel.ids.delete(id);
   $("photoCount").textContent = `(${list.length}/${MAX_PHOTOS})`;
   const box = $("photos");
   for (const img of box.querySelectorAll("img")) URL.revokeObjectURL(img.src);
   box.innerHTML = "";
   for (const p of list) {
     const div = document.createElement("div");
-    div.className = "ph";
-    const url = URL.createObjectURL(p.blob);
-    const isManual = p.component && !COMPONENTS.includes(p.component);
-    div.innerHTML = `<img src="${url}" alt="">
-      <select>${["", ...COMPONENTS, MANUAL].map(c =>
-        `<option value="${esc(c)}"${(c === p.component || (isManual && c === MANUAL)) ? " selected" : ""}>${c ? esc(c) : "Component..."}</option>`).join("")}</select>
-      <input type="text" placeholder="Component" value="${isManual ? esc(p.component) : ""}" class="${isManual ? "" : "hidden"}">
-      <button class="del" type="button">Remove</button>`;
-    const sel = div.querySelector("select"), inp = div.querySelector("input");
-    sel.onchange = async () => {
-      if (sel.value === MANUAL) { inp.classList.remove("hidden"); inp.focus(); p.component = inp.value.trim(); }
-      else { inp.classList.add("hidden"); p.component = sel.value; }
-      await db.put("photos", p);
-    };
-    inp.onchange = async () => { p.component = inp.value.trim(); await db.put("photos", p); };
-    div.querySelector(".del").onclick = async () => {
-      if (await ask("Remove this photo from the report?", { ok: "Remove" })) {
-        await db.del("photos", p.id);
-        await renderPhotos();
-      }
+    const on = photoSel.ids.has(p.id);
+    div.className = "ph sel" + (on ? " on" : "");
+    div.innerHTML = `<img src="${URL.createObjectURL(p.blob)}" alt="">
+      <div class="tag${p.component ? "" : " none"}">${esc(p.component || "No component")}</div>
+      <div class="tick">${on ? "&#10003;" : ""}</div>`;
+    div.onclick = () => {
+      if (photoSel.ids.has(p.id)) photoSel.ids.delete(p.id); else photoSel.ids.add(p.id);
+      renderPhotos();
     };
     box.appendChild(div);
   }
+  renderCompPanel(list);
+}
+
+function renderCompPanel(list) {
+  const pan = $("compPanel");
+  if (!list.length) { pan.innerHTML = ""; return; }
+  const sel = list.filter(p => photoSel.ids.has(p.id));
+  const n = sel.length;
+  const common = n && sel.every(p => p.component === sel[0].component) ? sel[0].component : "";
+  const custom = customComponents();
+  let h = `<div class="row small">
+      <button type="button" class="btn grow" data-a="all">Select all</button>
+      <button type="button" class="btn grow" data-a="none"${n ? "" : " disabled"}>Clear</button>
+      <button type="button" class="btn grow danger" data-a="del"${n ? "" : " disabled"}>Remove</button>
+    </div>`;
+  if (!n) h += `<p class="muted small">Tap the photos to select them, then choose their component.</p>`;
+  else {
+    h += `<p class="small"><b>${n} selected.</b> Choose their component in the COMPONENTS LIST:</p><div class="comps">`;
+    for (const c of allComponents()) {
+      const mine = custom.includes(c) && !COMPONENTS.includes(c);
+      h += `<button type="button" class="comp${c === common ? " on" : ""}" data-c="${esc(c)}">${esc(c)}${mine ? ` <span class="x" data-x="${esc(c)}" title="Remove from list">&times;</span>` : ""}</button>`;
+    }
+    h += `<button type="button" class="comp add" data-a="add">+ New component...</button>`;
+    if (sel.some(p => p.component)) h += `<button type="button" class="comp clr" data-a="clr">No component</button>`;
+    h += `</div>`;
+  }
+  pan.innerHTML = h;
+  pan.onclick = async ev => {
+    const x = ev.target.closest("[data-x]");
+    if (x) {
+      ev.stopPropagation();
+      const c = x.dataset.x;
+      if (await ask(`Remove <b>${esc(c)}</b> from the list?<br>(Photos that already have it keep it.)`, { ok: "Remove" })) {
+        saveCustomComponents(customComponents().filter(v => v !== c));
+        renderCompPanel(list);
+      }
+      return;
+    }
+    const b = ev.target.closest("button");
+    if (!b || b.disabled) return;
+    const a = b.dataset.a;
+    if (a === "all") { for (const p of list) photoSel.ids.add(p.id); return renderPhotos(); }
+    if (a === "none") { photoSel.ids.clear(); return renderPhotos(); }
+    if (a === "del") {
+      if (await ask(n === 1 ? "Remove this photo from the report?" : `Remove these ${n} photos from the report?`, { ok: "Remove" })) {
+        for (const p of sel) await db.del("photos", p.id);
+        photoSel.ids.clear();
+        await renderPhotos();
+      }
+      return;
+    }
+    let comp;
+    if (a === "add") {
+      const t = await ask("Component name:", { input: true, ok: "Add" });
+      comp = (t || "").trim().replace(/\s+/g, " ");
+      if (!comp) return;
+      const known = allComponents().find(c => c.toLowerCase() === comp.toLowerCase());
+      if (known) comp = known;
+      else saveCustomComponents([...customComponents(), comp]);
+    } else if (a === "clr") comp = "";
+    else if (b.dataset.c !== undefined) comp = b.dataset.c;
+    else return;
+    for (const p of sel) { p.component = comp; await db.put("photos", p); }
+    photoSel.ids.clear();                      // done: the component is now written on them
+    await renderPhotos();
+    toast(comp ? `${n} photo(s): ${comp}` : `${n} photo(s) without component`);
+  };
 }
 
 // Reduce the photo (keeps EXIF orientation) -> JPEG Blob
