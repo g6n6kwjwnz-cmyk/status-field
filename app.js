@@ -3,7 +3,7 @@
 // "Mobile Import" (modMovil) loads into the Status report.
 "use strict";
 
-const APP_VERSION = "0.8.0";
+const APP_VERSION = "0.8.1";
 const MAX_PHOTOS = 12;                 // same limit as the Status report (MAX_FOTOS_TOOL)
 const PHOTO_MAX_SIDE = 1600;           // px, enough for a slide and light to send
 const PHOTO_QUALITY = 0.85;
@@ -171,12 +171,41 @@ async function pasteRefs() {
   await loadRefsFromText(t);
 }
 
+// Excel (VBA Str) writes 0.85 as ".85" and -0.5 as "-.5", which is not valid JSON (quality %).
+// Outside the texts in quotes, a "." without a digit before it gets a "0".
+function fixVbaNumbers(t) {
+  let out = "", inStr = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (inStr) {
+      out += ch;
+      if (ch === "\\") { out += t[i + 1] || ""; i++; }
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === "." && /\d/.test(t[i + 1] || "") && !/\d/.test(t[i - 1] || "")) out += "0";
+    out += ch;
+  }
+  return out;
+}
+// JSON.parse; where the browser gives the position (Chrome, Edge), show the text around it
+function parseRefsJson(t) {
+  try { return JSON.parse(t); }
+  catch (e) {
+    const m = /position (\d+)/.exec(e.message);
+    if (!m) throw e;
+    const p = Number(m[1]);
+    throw new Error(`${e.message} - near: ${t.slice(Math.max(0, p - 60), p + 40).replace(/data:image[^"]*/g, "(picture)")}`);
+  }
+}
+
 async function loadRefsFromText(text) {
   try {
     text = String(text || "").replace(/^\uFEFF/, "");
     const a = text.indexOf("{"), b = text.lastIndexOf("}");
     if (a < 0 || b < a) throw new Error("No references found in the text.");
-    const data = JSON.parse(text.slice(a, b + 1));
+    const data = parseRefsJson(fixVbaNumbers(text.slice(a, b + 1)));
     if (!data || !Array.isArray(data.refs)) throw new Error("This is not a Dashboard Timing references file.");
     data.refs = data.refs.filter(r => r && r.id);
     await db.put("kv", data, "refs");
