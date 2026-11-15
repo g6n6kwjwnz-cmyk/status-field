@@ -26,14 +26,14 @@
   <section id="viewList">
     <div id="noRefs" class="card hidden">
       <p><b>No references loaded yet.</b></p>
-      <p>In Excel: ribbon <i>Dashboard Timing &gt; Refs for mobile</i>. Send your file <code>refs_mobile_&lt;name&gt;.json</code> to this phone and load it here, or copy its text and paste it.</p>
-      <label class="btn primary">Load references file<input type="file" id="fileRefs" accept=".json,application/json" hidden></label>
+      <p>In Excel: ribbon <i>Dashboard Timing &gt; Refs for mobile</i>. Send the files <code>refs_mobile_&lt;name&gt;.json</code> to this phone and load them here (you can choose several at once), or copy the text and paste it.</p>
+      <label class="btn primary">Load references file(s)<input type="file" id="fileRefs" accept=".json,application/json" multiple hidden></label>
       <button class="btn" id="btnPaste">Paste references</button>
       <button class="btn" id="btnDemo">Try with demo references</button>
     </div>
     <div id="oldFile" class="card warn hidden">
       <p><b>This list has the references of several people.</b> Load your personal file (<code>refs_mobile_&lt;your name&gt;.json</code>).</p>
-      <label class="btn primary">Load my references file<input type="file" id="fileRefs3" accept=".json,application/json" hidden></label>
+      <label class="btn primary">Load my references file<input type="file" id="fileRefs3" accept=".json,application/json" multiple hidden></label>
     </div>
     <div id="listTools" class="hidden">
       <input type="search" id="search" placeholder="Search reference, project, supplier..." autocomplete="off">
@@ -83,7 +83,7 @@
     <p class="muted small">It is saved as "By" in the comments.</p>
     <h2>References</h2>
     <p id="refsInfo" class="muted"></p>
-    <label class="btn">Load a new references file<input type="file" id="fileRefs2" accept=".json,application/json" hidden></label>
+    <label class="btn">Load new references file(s)<input type="file" id="fileRefs2" accept=".json,application/json" multiple hidden></label>
     <button class="btn" id="btnPaste2">Paste references</button>
     <h2>Reports</h2>
     <label class="btn">Open a report (.zip)<input type="file" id="fileReport" accept=".zip,application/zip" hidden></label>
