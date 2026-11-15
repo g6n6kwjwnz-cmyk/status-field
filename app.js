@@ -3,7 +3,7 @@
 // "Mobile Import" (modMovil) loads into the Status report.
 "use strict";
 
-const APP_VERSION = "0.10.0";
+const APP_VERSION = "0.11.0";
 const MAX_PHOTOS = 12;                 // same limit as the Status report (MAX_FOTOS_TOOL)
 const PHOTO_MAX_SIDE = 1600;           // px, enough for a slide and light to send
 const PHOTO_QUALITY = 0.85;
@@ -275,6 +275,40 @@ function show(view) {
 // ---------------- References ----------------
 async function loadRefsFromFile(file) { return loadRefsFromText(await file.text()); }
 
+// (0.11.0) Several refs_mobile_<name>.json at once (e.g. a whole team): one list with all their references
+async function loadRefsFromFiles(files) {
+  files = [...(files || [])];
+  if (files.length <= 1) return files[0] ? loadRefsFromFile(files[0]) : undefined;
+  const parts = [], bad = [];
+  for (const f of files) {
+    try { parts.push(parseRefsText(await f.text())); }
+    catch (e) { bad.push(`${esc(f.name)}: ${esc(e.message)}`); }
+  }
+  if (!parts.length) return ask(`<b>The files could not be loaded.</b><br>${bad.join("<br>")}`, { cancel: "" });
+  await saveRefs(mergeRefs(parts), bad);
+}
+
+// Joins several refs files: same reference in two files = the newest file wins
+function mergeRefs(parts) {
+  parts.sort((x, y) => String(x.created || "").localeCompare(String(y.created || "")));
+  const byId = new Map(), codes = {}, owners = [];
+  let week = "", version = 0;
+  for (const d of parts) {
+    for (const r of d.refs) byId.set(r.id, Object.assign({ owner: d.owner || "" }, r));
+    if (d.codes) Object.assign(codes, d.codes);
+    if (d.week && String(d.week) > week) week = String(d.week);
+    if (d.owner && !owners.includes(String(d.owner))) owners.push(String(d.owner));
+    version = Math.max(version, Number(d.version) || 0);
+  }
+  const m = Object.assign({}, parts[parts.length - 1]);
+  m.refs = [...byId.values()];
+  m.codes = codes; m.version = version; m.files = parts.length;
+  if (week) m.week = isNaN(Number(week)) ? week : Number(week);
+  m.owner = owners.length === 1 ? owners[0] : owners.join(" + ");
+  m.owners = owners;
+  return m;
+}
+
 // Copy / paste: the text of refs_mobile_<name>.json (e-mail, Notes, Teams...). Anything around the JSON is ignored.
 async function pasteRefs() {
   let t = "";
@@ -315,26 +349,35 @@ function parseRefsJson(t) {
   }
 }
 
+function parseRefsText(text) {
+  text = String(text || "").replace(/^\uFEFF/, "");
+  const a = text.indexOf("{"), b = text.lastIndexOf("}");
+  if (a < 0 || b < a) throw new Error("No references found in the text.");
+  const data = parseRefsJson(fixVbaNumbers(text.slice(a, b + 1)));
+  if (!data || !Array.isArray(data.refs)) throw new Error("This is not a Dashboard Timing references file.");
+  data.refs = data.refs.filter(r => r && r.id);
+  return data;
+}
+
+async function saveRefs(data, bad) {
+  await db.put("kv", data, "refs");
+  state.refs = data;
+  state.project = null;
+  const owners = data.owners || (data.owner ? [String(data.owner)] : []);
+  if (owners.length === 1) {                          // one person's file: that is the author of the comments
+    state.author = owners[0];
+    await db.put("kv", state.author, "author");
+    $("txtAuthor").value = state.author;
+  }
+  if (bad && bad.length) await ask(`<b>${data.refs.length} references loaded from ${data.files} files.</b><br>Not loaded:<br>${bad.join("<br>")}`, { cancel: "" });
+  else toast(data.files > 1 ? `${data.refs.length} references loaded from ${data.files} files` : `${data.refs.length} references loaded`);
+  await renderList();
+  show("viewList");
+}
+
 async function loadRefsFromText(text) {
-  try {
-    text = String(text || "").replace(/^\uFEFF/, "");
-    const a = text.indexOf("{"), b = text.lastIndexOf("}");
-    if (a < 0 || b < a) throw new Error("No references found in the text.");
-    const data = parseRefsJson(fixVbaNumbers(text.slice(a, b + 1)));
-    if (!data || !Array.isArray(data.refs)) throw new Error("This is not a Dashboard Timing references file.");
-    data.refs = data.refs.filter(r => r && r.id);
-    await db.put("kv", data, "refs");
-    state.refs = data;
-    state.project = null;
-    if (data.owner) {                                   // each person receives only their own file
-      state.author = String(data.owner);
-      await db.put("kv", state.author, "author");
-      $("txtAuthor").value = state.author;
-    }
-    toast(`${data.refs.length} references loaded`);
-    await renderList();
-    show("viewList");
-  } catch (e) {
+  try { await saveRefs(parseRefsText(text)); }
+  catch (e) {
     await ask(`<b>The file could not be loaded.</b><br>${esc(e.message)}`, { cancel: "" });
   }
 }
@@ -859,12 +902,12 @@ async function init() {
   state.author = (await db.get("kv", "author")) || "";
   $("txtAuthor").value = state.author;
 
-  $("fileRefs").onchange = e => e.target.files[0] && loadRefsFromFile(e.target.files[0]);
-  $("fileRefs2").onchange = e => e.target.files[0] && loadRefsFromFile(e.target.files[0]);
+  $("fileRefs").onchange = e => { loadRefsFromFiles(e.target.files); e.target.value = ""; };
+  $("fileRefs2").onchange = e => { loadRefsFromFiles(e.target.files); e.target.value = ""; };
   $("btnPaste").onclick = () => pasteRefs();
   $("btnPaste2").onclick = () => pasteRefs();
   $("fileReport").onchange = async e => { if (e.target.files[0]) await openReport(e.target.files[0]); e.target.value = ""; };
-  $("fileRefs3").onchange = e => e.target.files[0] && loadRefsFromFile(e.target.files[0]);
+  $("fileRefs3").onchange = e => { loadRefsFromFiles(e.target.files); e.target.value = ""; };
   $("btnDemo").onclick = async () => { await db.put("kv", DEMO_REFS, "refs"); state.refs = DEMO_REFS; await renderList(); show("viewList"); };
   $("search").oninput = () => renderList();
   $("onlyDraft").onchange = () => renderList();
@@ -877,7 +920,7 @@ async function init() {
     await renderList(); show("viewList");
   };
   $("btnSettings").onclick = () => {
-    $("refsInfo").textContent = state.refs ? `${state.refs.refs.length} references${state.refs.created ? ", file of " + new Date(state.refs.created).toLocaleString() : ""}` : "No references loaded.";
+    $("refsInfo").textContent = state.refs ? `${state.refs.refs.length} references${state.refs.files > 1 ? ` from ${state.refs.files} files (${state.refs.owner})` : ""}${state.refs.created ? ", file of " + new Date(state.refs.created).toLocaleString() : ""}` : "No references loaded.";
     show("viewSettings");
   };
   $("txtAuthor").onchange = async () => { state.author = $("txtAuthor").value.trim(); await db.put("kv", state.author, "author"); };
