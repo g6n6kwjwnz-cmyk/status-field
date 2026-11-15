@@ -3,7 +3,7 @@
 // "Mobile Import" (modMovil) loads into the Status report.
 "use strict";
 
-const APP_VERSION = "0.12.0";
+const APP_VERSION = "0.12.1";
 const MAX_PHOTOS = 12;                 // same limit as the Status report (MAX_FOTOS_TOOL)
 const PHOTO_MAX_SIDE = 1600;           // px, enough for a slide and light to send
 const PHOTO_QUALITY = 0.85;
@@ -533,13 +533,13 @@ function renderFilterPanel() {
     for (const r of refs) { const v = fval(f, r); if (!all.has(v.toLowerCase())) all.set(v.toLowerCase(), [v, 0]); }
     if (all.size < 2 && !sel.length) continue;           // one value only: nothing to filter
     for (const r of refs) if (passFilters(r, f[0])) all.get(fval(f, r).toLowerCase())[1]++;
-    const vals = [...all.entries()].filter(([k, [, n]]) => n || sel.includes(k))
+    const vals = [...all.entries()]                       // (0.12.1) every value, also the ones the other filters leave at 0
       .sort((x, y) => f[0] === "status" ? (STATUS.findIndex(s => s.name === x[1][0]) - STATUS.findIndex(s => s.name === y[1][0])) : (x[1][0] || "~").localeCompare(y[1][0] || "~"));
     const chips = vals.map(([k, [t, n]]) => {
       const st = f[0] === "status" ? STATUS.find(s => s.name === t) : null;
-      return `<button type="button" class="comp${sel.includes(k) ? " on" : ""}" data-f="${f[0]}" data-v="${esc(k)}">${st ? `<span class="sdot" style="background:${st.color}"></span>` : ""}${esc(t || "(Empty)")} <small>${n}</small></button>`;
+      return `<button type="button" class="comp${sel.includes(k) ? " on" : ""}${n ? "" : " zero"}" data-f="${f[0]}" data-v="${esc(k)}">${st ? `<span class="sdot" style="background:${st.color}"></span>` : ""}${esc(t || "(Empty)")} <small>${n}</small></button>`;
     }).join("");
-    const sum = sel.length ? sel.map(k => (all.get(k) || [k])[0] || "(Empty)").join(", ") : "All";
+    const sum = sel.length ? (sel.length > 2 ? `${sel.length} selected` : sel.map(k => (all.get(k) || [k])[0] || "(Empty)").join(", ")) : `All (${all.size})`;
     h += `<div class="frow${fOpen === f[0] ? " open" : ""}" data-row="${f[0]}"><button type="button" class="fsum"><span>${esc(f[1])}</span><span class="fval${sel.length ? " on" : ""}">${esc(sum)}</span><span class="chev">&#8250;</span></button>
       <div class="comps">${chips}</div></div>`;
   }
