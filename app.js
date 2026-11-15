@@ -3,7 +3,7 @@
 // "Mobile Import" (modMovil) loads into the Status report.
 "use strict";
 
-const APP_VERSION = "0.8.1";
+const APP_VERSION = "0.9.0";
 const MAX_PHOTOS = 12;                 // same limit as the Status report (MAX_FOTOS_TOOL)
 const PHOTO_MAX_SIDE = 1600;           // px, enough for a slide and light to send
 const PHOTO_QUALITY = 0.85;
@@ -94,9 +94,124 @@ function qualityText(r) {
 // Card: only Part Number, Supplier, Production Plant and Quality %
 function cardLines(r) {
   const q = qualityText(r);
+  const t = timingSummary(r);
   return `<div class="sub">${r.no ? "PN " + esc(r.no) : ""}</div>
     <div class="sub">${esc([r.supplier, r.plant].filter(Boolean).join(" · "))}</div>
-    <div class="sub">Quality: ${q ? esc(q) : "–"}</div>`;
+    <div class="sub">Quality: ${q ? esc(q) : "–"}</div>${t ? `<div class="sub">${t}</div>` : ""}`;
+}
+
+// ---------------- Timing, C/F, shipping... (refs file version 4, Excel 15f) ----------------
+function isoKey(d) {                                   // ISO week key yyyyww (same as Excel ClaveISO)
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));   // Thursday of this week decides the year
+  const y = t.getUTCFullYear();
+  return y * 100 + Math.ceil(((t - Date.UTC(y, 0, 1)) / 86400000 + 1) / 7);
+}
+const curWeek = () => isoKey(new Date());
+const wkText = k => { k = Number(k); if (!k) return ""; const y = Math.floor(k / 100); return `W${k % 100}${y !== Math.floor(curWeek() / 100) ? "/" + String(y).slice(2) : ""}`; };
+const codeInfo = c => (state.refs && state.refs.codes && state.refs.codes[c]) || null;
+function chip(c) {
+  if (!c) return "";
+  const i = codeInfo(c);
+  return `<span class="code" style="${i ? `background:${i[1]};color:${i[2]}` : ""}">${esc(c)}</span>`;
+}
+// Latest plan line: Plan3 > Plan2 > Plan
+function planLine(t) {
+  let best = null, n = -1;
+  for (const [name, cells] of t.lines || []) {
+    const m = /^Plan(\d*)$/i.exec(String(name).trim());
+    if (m) { const k = m[1] ? Number(m[1]) : 1; if (k > n) { n = k; best = [name, cells]; } }
+  }
+  return best;
+}
+function lineCells(t, name) { const l = (t.lines || []).find(([n]) => String(n).toLowerCase() === name.toLowerCase()); return l ? l[1] : null; }
+// "W47: Plan R · Actual R · next PBO W49, SP W52"
+function timingSummary(r) {
+  const t = r.timing;
+  if (!t || !Array.isArray(t.w) || !t.w.length) return "";
+  const cw = curWeek();
+  const i = t.w.indexOf(cw);
+  const pl = planLine(t), act = lineCells(t, "Actual");
+  const parts = [];
+  if (i >= 0) {
+    if (pl && pl[1][i]) parts.push(`${esc(pl[0])} ${chip(pl[1][i])}`);
+    if (act && act[i]) parts.push(`Actual ${chip(act[i])}`);
+  }
+  const next = [];
+  if (pl) {
+    const from = t.w.findIndex(k => k >= cw);
+    if (from >= 0) for (const m of ["PBO", "BO", "FBO", "SP"]) {
+      const j = pl[1].findIndex((c, k) => k >= from && String(c).toUpperCase() === m);
+      if (j >= 0) next.push(`${m} ${wkText(t.w[j])}`);
+    }
+  }
+  if (!parts.length && !next.length) return "";
+  return `Timing ${wkText(cw)}: ${parts.join(" · ") || "–"}${next.length ? ` · next ${esc(next.join(", "))}` : ""}`;
+}
+function timingGrid(t) {
+  const cw = curWeek();
+  const head = t.w.map(k => `<th class="${k === cw ? "now" : ""}">${k % 100}</th>`).join("");
+  const rows = (t.lines || []).filter(([, cells]) => cells.some(c => c)).map(([name, cells]) =>
+    `<tr><th class="ln">${esc(name)}</th>${cells.map((c, j) => {
+      const i = c ? codeInfo(c) : null;
+      return `<td data-k="${t.w[j]}" data-l="${esc(name)}" data-c="${esc(c)}" class="${t.w[j] === cw ? "now" : ""}" style="${i ? `background:${i[1]};color:${i[2]}` : ""}">${esc(c)}</td>`;
+    }).join("")}</tr>`).join("");
+  return `<div class="tgrid"><table><thead><tr><th class="ln"></th>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+const pctCell = v => (v === null || v === undefined || v === "") ? "" : pct(v);
+function refDataHtml(r) {
+  const sec = (title, n, body, open) => body ? `<details class="sec"${open ? " open" : ""}><summary>${title}${n ? ` <span class="muted">(${n})</span>` : ""}</summary>${body}</details>` : "";
+  let h = "";
+  if (r.timing && Array.isArray(r.timing.w) && r.timing.w.length) h += sec("Timing", 0, timingGrid(r.timing) + `<p class="muted small">Tap a cell to see the code.</p>`, true);
+  if (Array.isArray(r.cf) && r.cf.length) {
+    const rows = [...r.cf].sort((a, b) => String(b[0]).localeCompare(String(a[0])) || (b[1] || 0) - (a[1] || 0));
+    const extra = [7, 8, 9, 10].filter(k => rows.some(x => x[k] !== null && x[k] !== undefined && x[k] !== ""));
+    const names = { 7: "P3", 8: "P4", 9: "P5", 10: "P6" };
+    h += sec("C/F results", rows.length, `<div class="tscroll"><table class="dt"><thead><tr><th>Date</th><th>Wk</th><th>Stage</th><th>PIST</th><th>LH</th><th>RH</th>${extra.map(k => `<th>${names[k]}</th>`).join("")}<th>Notes</th></tr></thead><tbody>${rows.map(x =>
+      `<tr><td>${esc(x[0])}</td><td>${esc(wkText(x[1]))}</td><td>${esc(x[2])}</td><td>${pctCell(x[3])}</td><td>${pctCell(x[4])}</td><td>${pctCell(x[5])}</td>${extra.map(k => `<td>${pctCell(x[k])}</td>`).join("")}<td>${esc(x[6])}</td></tr>`).join("")}</tbody></table></div>`, true);
+  }
+  if (Array.isArray(r.ship) && r.ship.length) {
+    const rows = [...r.ship].sort((a, b) => (b[0] || 0) - (a[0] || 0));
+    h += sec("Shipping (SP)", rows.length, rows.map(x => {
+      const wk = [wkText(x[0]), x[1] && x[1] !== x[0] ? wkText(x[1]) : ""].filter(Boolean).join(" – ");
+      const link = /^https?:\/\//i.test(String(x[4] || "")) ? ` <a href="${esc(x[4])}" target="_blank" rel="noopener">tracking</a>` : (x[4] ? " " + esc(x[4]) : "");
+      return `<div class="item"><b>${esc(wk)}</b> ${esc([x[2], x[3]].filter(Boolean).join(" · "))}${link}${x[5] || x[6] ? `<div class="muted small">${x[5] ? "ETD " + esc(x[5]) : ""} ${x[6] ? "ETA " + esc(x[6]) : ""}</div>` : ""}${x[7] ? `<div class="pre small">${esc(x[7])}</div>` : ""}</div>`;
+    }).join(""));
+  }
+  if (Array.isArray(r.hlto) && r.hlto.length) {
+    const rows = [...r.hlto].sort((a, b) => String(b[0]).localeCompare(String(a[0])));
+    const open = rows.filter(x => !/clos/i.test(String(x[5] || ""))).length;
+    h += sec(`HLTO${open ? ` <span class="code red">${open} open</span>` : ""}`, rows.length, rows.map(x =>
+      `<div class="item"><b>${esc(x[0])}</b> · ${esc(x[1])} · <b>${esc(x[5] || "")}</b>${x[6] ? " " + esc(x[6]) : ""}<div class="pre">${esc(x[2])}</div>${x[3] ? `<div class="pre small">Action: ${esc(x[3])}</div>` : ""}${x[4] ? `<div class="muted small">Responsible: ${esc(x[4])}</div>` : ""}</div>`).join(""), open > 0);
+  }
+  if (Array.isArray(r.comments) && r.comments.length) {
+    const rows = [...r.comments].sort((a, b) => String(b[0]).localeCompare(String(a[0])));
+    h += sec("Comments", rows.length, rows.map(x => `<div class="item"><b>${esc(x[0])}</b> · ${esc(x[1])}<div class="pre">${esc(x[2])}</div></div>`).join(""));
+  }
+  if (Array.isArray(r.notes) && r.notes.length) {
+    const rows = [...r.notes].sort((a, b) => (b[0] || 0) - (a[0] || 0));
+    h += sec("Timing notes", rows.length, rows.map(x => `<div class="item"><b>${esc(wkText(x[0]))}</b> · ${esc(x[1])}<div class="pre">${esc(x[2])}</div></div>`).join(""));
+  }
+  return h;
+}
+// Current week in the middle of the timing grid (only once the view is visible: hidden it has no size)
+function scrollTimingNow() {
+  const g = document.querySelector("#refData .tgrid");
+  const now = g && g.querySelector("th.now");
+  if (g) g.scrollLeft = now ? Math.max(0, now.offsetLeft - g.clientWidth / 2) : g.scrollWidth;
+}
+function renderRefData(r) {
+  const box = $("refData");
+  box.innerHTML = refDataHtml(r);
+  const g = box.querySelector(".tgrid");
+  if (g) {
+    g.onclick = e => {
+      const td = e.target.closest("td[data-c]");
+      if (!td || !td.dataset.c) return;
+      const i = codeInfo(td.dataset.c);
+      toast(`${wkText(td.dataset.k)} ${td.dataset.l}: ${td.dataset.c}${i ? " – " + i[0] : ""}`);
+    };
+  }
 }
 // "i": everything else about the reference
 function showInfo(r) {
@@ -108,7 +223,7 @@ function showInfo(r) {
     ["Status in Excel", cur ? cur.name : "No status"],
     ["Quality (C/F)", q ? `${qualityText(r)}${q.stage ? " · " + q.stage : ""}${q.week ? " · W" + String(q.week).slice(4) + "/" + String(q.week).slice(0, 4) : ""}` : ""],
     ["Type", i.type], ["CAD level", i.cad], ["ND", i.nd], ["Material", i.material], ["Thickness", i.thickness],
-    ["Width", i.width], ["Pitch", i.pitch], ["Press", i.press], ["Weight", i.weight], ["Last change", i.lastChange],
+    ["Width", i.width], ["Pitch", i.pitch], ["Press", i.press], ["Weight", i.weight], ["Product", i.product], ["Parts per die", i.partsDie], ["Last change", i.lastChange],
   ].filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== "");
   ask(`${r.thumb ? `<img class="bigthumb" src="${r.thumb}" alt="">` : ""}<table class="info">${rows.map(([k, v]) =>
     `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join("")}</table>`, { cancel: "" });
@@ -323,6 +438,7 @@ async function openRef(refId) {
   if (r.thumb) $("refThumb").src = r.thumb; else $("refThumb").removeAttribute("src");
   const cur = STATUS.find(s => s.code === Number(r.status));
   $("refSub").innerHTML = cardLines(r) + `<div class="sub">In Excel: ${cur ? esc(cur.name) : "No status"}</div>`;
+  renderRefData(r);
   renderStatus(d);
   $("txtCom").value = d.comment || "";
   $("txtCF").value = d.cfixture || "";
@@ -331,6 +447,7 @@ async function openRef(refId) {
   await renderBox("cf");
   await renderBox("mat");
   show("viewRef");
+  scrollTimingNow();
 }
 
 function renderStatus(d) {
