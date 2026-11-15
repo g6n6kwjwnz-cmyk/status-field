@@ -3,7 +3,7 @@
 // "Mobile Import" (modMovil) loads into the Status report.
 "use strict";
 
-const APP_VERSION = "0.11.0";
+const APP_VERSION = "0.12.0";
 const MAX_PHOTOS = 12;                 // same limit as the Status report (MAX_FOTOS_TOOL)
 const PHOTO_MAX_SIDE = 1600;           // px, enough for a slide and light to send
 const PHOTO_QUALITY = 0.85;
@@ -264,6 +264,8 @@ function show(view) {
   for (const v of ["viewList", "viewRef", "viewSettings", "viewReport"]) $(v).classList.toggle("hidden", v !== view);
   $("btnBack").classList.toggle("hidden", view === "viewList" && state.project === null);
   $("btnSettings").classList.toggle("hidden", view !== "viewList" || state.project !== null);
+  $("btnFilter").classList.toggle("hidden", view !== "viewList" || !(state.refs && state.refs.refs.length));
+  closeFilters();
   $("footer").classList.toggle("hidden", view !== "viewList" || !state.refs);
   if (view === "viewList") $("title").textContent = state.project === null ? "Projects" : (state.project || "(No project)");
   if (view === "viewList") $("search").placeholder = state.project === null ? "Search project or reference..." : "Search reference, supplier...";
@@ -394,6 +396,7 @@ async function renderList() {
   const has = !!(state.refs && state.refs.refs.length);
   $("noRefs").classList.toggle("hidden", has);
   $("listTools").classList.toggle("hidden", !has);
+  $("btnFilter").classList.toggle("hidden", !has || $("viewList").classList.contains("hidden"));
   // Old file with everybody's references (before the files per person): ask for the personal one
   const nOwners = has ? new Set(state.refs.refs.map(r => r.owner).filter(Boolean)).size : 0;
   $("oldFile").classList.toggle("hidden", !has || !!state.refs.owner || nOwners < 2);
@@ -401,6 +404,8 @@ async function renderList() {
   const ul = $("refList");
   ul.innerHTML = "";
   if (!has) return;
+  renderActiveFilters();
+  if (!$("fPanel").classList.contains("hidden")) renderFilterPanel();
   const q = $("search").value.trim().toLowerCase();
   const only = $("onlyDraft").checked;
   let n = 0;
@@ -415,7 +420,9 @@ async function renderList() {
     }
     const names = [...groups.keys()].sort((a, b) => (a || "~").localeCompare(b || "~"));
     for (const name of names) {
-      const refs = groups.get(name);
+      const total = groups.get(name).length;
+      const refs = groups.get(name).filter(r => passFilters(r));
+      if (!refs.length) continue;
       const nRep = refs.filter(r => hasContent(state.drafts.get(r.id), state.photoCounts.get(r.id) || 0)).length;
       if (only && !nRep) continue;
       const th = refs.find(r => r.thumb);
@@ -423,13 +430,13 @@ async function renderList() {
       const li = document.createElement("li");
       li.innerHTML = `${th ? `<img class="thumb" src="${th.thumb}" alt="" loading="lazy">` : `<span class="thumb empty"></span>`}
         <div class="txt"><div class="name">${esc(name || "(No project)")}</div>
-        <div class="sub">${refs.length} reference${refs.length > 1 ? "s" : ""}${sup.length ? " · " + esc(sup.slice(0, 2).join(", ")) + (sup.length > 2 ? "..." : "") : ""}</div></div>
+        <div class="sub">${refs.length < total ? `${refs.length} of ${total}` : refs.length} reference${total > 1 ? "s" : ""}${sup.length ? " · " + esc(sup.slice(0, 2).join(", ")) + (sup.length > 2 ? "..." : "") : ""}</div></div>
         ${nRep ? `<span class="badge">${nRep} ✎</span>` : ""}<span class="chev">&#8250;</span>`;
       li.onclick = () => { state.project = name; $("search").value = ""; renderList(); show("viewList"); };
       ul.appendChild(li);
       n++;
     }
-    if (!n) ul.innerHTML = `<li class="muted">No projects match.</li>`;
+    if (!n) ul.innerHTML = `<li class="muted">No projects match${nFilters() ? " the filters" : ""}.</li>`;
   }
 
   for (const r of (state.project === null && !q) ? [] : state.refs.refs) {
@@ -438,6 +445,7 @@ async function renderList() {
     const np = state.photoCounts.get(r.id) || 0;
     const withReport = hasContent(d, np);
     if (only && !withReport) continue;
+    if (!passFilters(r)) continue;
     const hay = [r.no, r.pn, r.project, r.supplier].join(" ").toLowerCase();
     if (q && !hay.includes(q)) continue;
     const st = STATUS.find(s => s.code === Number((d && d.status) || r.status));
@@ -454,10 +462,134 @@ async function renderList() {
     ul.appendChild(li);
     n++;
   }
-  if (!n && !(state.project === null && !q)) ul.innerHTML = `<li class="muted">No references match.</li>`;
+  if (!n && !(state.project === null && !q)) ul.innerHTML = `<li class="muted">No references match${nFilters() ? " the filters" : ""}.</li>`;
   const nRep = state.refs.refs.filter(r => hasContent(state.drafts.get(r.id), state.photoCounts.get(r.id) || 0)).length;
   $("btnExport").textContent = nRep ? `Send report (${nRep} reference${nRep > 1 ? "s" : ""})` : "Send report";
   $("btnExport").disabled = !nRep;
+}
+
+// ---------------- Filters (0.12.0, like the PC Project view: several values per field, Milestone) ----------------
+const FILTER_KEY = "sf.filters";
+const FIELDS = [
+  ["project", "Project", r => r.project],
+  ["supplier", "Supplier", r => r.supplier],
+  ["plant", "Plant", r => r.plant],
+  ["type", "Type", r => (r.info || {}).type],
+  ["owner", "Person", r => r.owner],
+  ["status", "Status", r => { const st = STATUS.find(s => s.code === Number(curStatus(r))); return st ? st.name : ""; }],
+  ["material", "Material", r => (r.info || {}).material],
+  ["press", "Press", r => (r.info || {}).press],
+  ["product", "Product", r => (r.info || {}).product],
+];
+const MS_RANGES = [["last4", "Last 4 weeks", -4, -1], ["now", "This week", 0, 0], ["next2", "Next 2 weeks", 0, 1], ["next4", "Next 4 weeks", 0, 3], ["next8", "Next 8 weeks", 0, 7]];
+let filt = loadFilters();
+let fOpen = "";                                         // field open in the panel
+function loadFilters() {
+  try { const f = JSON.parse(localStorage.getItem(FILTER_KEY) || "null"); if (f && f.sel) return { sel: f.sel, ms: f.ms || [], range: f.range || "next4" }; } catch (e) {}
+  return { sel: {}, ms: [], range: "next4" };
+}
+function saveFilters() { try { localStorage.setItem(FILTER_KEY, JSON.stringify(filt)); } catch (e) {} }
+function curStatus(r) { const d = state.drafts.get(r.id); return (d && d.status) || r.status; }
+const fval = (f, r) => String(f[2](r) ?? "").trim();
+const weekPlus = n => isoKey(new Date(Date.now() + n * 7 * 86400000));
+function msRange() { const g = MS_RANGES.find(x => x[0] === filt.range) || MS_RANGES[3]; return [weekPlus(g[2]), weekPlus(g[3]), g]; }
+// Milestone like the PC: Actual for past weeks, the latest plan from this week on
+function msCodes(r) {
+  const t = r.timing, out = new Set();
+  if (!t || !Array.isArray(t.w)) return out;
+  const cw = curWeek(), [a, b] = msRange(), pl = planLine(t), act = lineCells(t, "Actual");
+  t.w.forEach((k, i) => {
+    if (k < a || k > b) return;
+    const c = k < cw ? (act && act[i]) : (pl && pl[1][i]);
+    if (c) out.add(String(c).toUpperCase());
+  });
+  return out;
+}
+function nFilters() { return Object.values(filt.sel).filter(v => v && v.length).length + (filt.ms.length ? 1 : 0); }
+// Does reference r pass the filters (except field "skip")?
+function passFilters(r, skip) {
+  for (const f of FIELDS) {
+    const v = filt.sel[f[0]];
+    if (f[0] === skip || !v || !v.length) continue;
+    if (!v.includes(fval(f, r).toLowerCase())) return false;
+  }
+  if (skip !== "ms" && filt.ms.length) { const c = msCodes(r); if (!filt.ms.some(x => c.has(x))) return false; }
+  return true;
+}
+function scopeRefs() {
+  const refs = (state.refs && state.refs.refs) || [];
+  return state.project === null ? refs : refs.filter(r => String(r.project || "").trim() === state.project);
+}
+function toggleIn(arr, v) { const i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); return arr; }
+async function filtersChanged() { saveFilters(); renderFilterPanel(); await renderList(); }
+
+function renderFilterPanel() {
+  const refs = scopeRefs();
+  let h = "";
+  for (const f of FIELDS) {
+    if (f[0] === "project" && state.project !== null) continue;
+    const sel = filt.sel[f[0]] || [];
+    const all = new Map();                               // value (lowercase) -> [text, count]
+    for (const r of refs) { const v = fval(f, r); if (!all.has(v.toLowerCase())) all.set(v.toLowerCase(), [v, 0]); }
+    if (all.size < 2 && !sel.length) continue;           // one value only: nothing to filter
+    for (const r of refs) if (passFilters(r, f[0])) all.get(fval(f, r).toLowerCase())[1]++;
+    const vals = [...all.entries()].filter(([k, [, n]]) => n || sel.includes(k))
+      .sort((x, y) => f[0] === "status" ? (STATUS.findIndex(s => s.name === x[1][0]) - STATUS.findIndex(s => s.name === y[1][0])) : (x[1][0] || "~").localeCompare(y[1][0] || "~"));
+    const chips = vals.map(([k, [t, n]]) => {
+      const st = f[0] === "status" ? STATUS.find(s => s.name === t) : null;
+      return `<button type="button" class="comp${sel.includes(k) ? " on" : ""}" data-f="${f[0]}" data-v="${esc(k)}">${st ? `<span class="sdot" style="background:${st.color}"></span>` : ""}${esc(t || "(Empty)")} <small>${n}</small></button>`;
+    }).join("");
+    const sum = sel.length ? sel.map(k => (all.get(k) || [k])[0] || "(Empty)").join(", ") : "All";
+    h += `<div class="frow${fOpen === f[0] ? " open" : ""}" data-row="${f[0]}"><button type="button" class="fsum"><span>${esc(f[1])}</span><span class="fval${sel.length ? " on" : ""}">${esc(sum)}</span><span class="chev">&#8250;</span></button>
+      <div class="comps">${chips}</div></div>`;
+  }
+  // Milestone
+  const order = Object.keys((state.refs && state.refs.codes) || {}).map(c => c.toUpperCase());
+  const cnt = new Map();
+  for (const r of refs) if (passFilters(r, "ms")) for (const c of msCodes(r)) cnt.set(c, (cnt.get(c) || 0) + 1);
+  const codes = [...new Set([...cnt.keys(), ...filt.ms])].sort((x, y) => (order.indexOf(x) + 1 || 999) - (order.indexOf(y) + 1 || 999) || x.localeCompare(y));
+  const [a, b, g] = msRange();
+  const msSum = filt.ms.length ? `${filt.ms.join(", ")} · ${g[1]}` : "All";
+  h += `<div class="frow${fOpen === "ms" ? " open" : ""}" data-row="ms"><button type="button" class="fsum"><span>Milestone</span><span class="fval${filt.ms.length ? " on" : ""}">${esc(msSum)}</span><span class="chev">&#8250;</span></button>
+    <div class="fms"><div class="muted small">When: ${wkText(a)}${b !== a ? " – " + wkText(b) : ""} (Actual for past weeks, plan from this week)</div>
+    <div class="comps">${MS_RANGES.map(x => `<button type="button" class="comp${filt.range === x[0] ? " on" : ""}" data-range="${x[0]}">${x[1]}</button>`).join("")}</div>
+    <div class="muted small" style="margin-top:8px">Code:</div>
+    <div class="comps">${codes.length ? codes.map(c => `<button type="button" class="comp${filt.ms.includes(c) ? " on" : ""}" data-ms="${esc(c)}">${chip(c)} ${esc((codeInfo(c) || [""])[0])} <small>${cnt.get(c) || 0}</small></button>`).join("") : `<span class="muted small">No timing codes in these weeks.</span>`}</div></div></div>`;
+  $("fBody").innerHTML = h;
+  const n = refs.filter(r => passFilters(r)).length;
+  $("fShow").textContent = `Show ${n} reference${n === 1 ? "" : "s"}`;
+  $("fClear").disabled = !nFilters();
+  for (const row of $("fBody").querySelectorAll(".frow")) row.querySelector(".fsum").onclick = () => { fOpen = fOpen === row.dataset.row ? "" : row.dataset.row; renderFilterPanel(); };
+  for (const bt of $("fBody").querySelectorAll("[data-f]")) bt.onclick = () => { const f = bt.dataset.f; filt.sel[f] = toggleIn(filt.sel[f] || [], bt.dataset.v); filtersChanged(); };
+  for (const bt of $("fBody").querySelectorAll("[data-ms]")) bt.onclick = () => { toggleIn(filt.ms, bt.dataset.ms); filtersChanged(); };
+  for (const bt of $("fBody").querySelectorAll("[data-range]")) bt.onclick = () => { filt.range = bt.dataset.range; filtersChanged(); };
+}
+function openFilters(field) {
+  if (field !== undefined) fOpen = field;
+  renderFilterPanel();
+  $("fPanel").style.top = Math.round(document.querySelector("header.bar").getBoundingClientRect().bottom) + "px";
+  $("fPanel").classList.remove("hidden"); $("fBack").classList.remove("hidden");
+}
+function closeFilters() { $("fPanel").classList.add("hidden"); $("fBack").classList.add("hidden"); }
+// Active filters as small chips under the search box (x = remove)
+function renderActiveFilters() {
+  const n = nFilters();
+  $("fCount").textContent = n; $("fCount").classList.toggle("hidden", !n);
+  const box = $("fActive");
+  const items = [];
+  for (const f of FIELDS) {
+    const v = filt.sel[f[0]];
+    if (!v || !v.length) continue;
+    const names = v.map(k => { const r = state.refs && state.refs.refs.find(x => fval(f, x).toLowerCase() === k); return r ? fval(f, r) : k; }).map(t => t || "(Empty)");
+    items.push([f[0], `${f[1]}: ${names.length > 2 ? names.slice(0, 2).join(", ") + ` +${names.length - 2}` : names.join(", ")}`]);
+  }
+  if (filt.ms.length) items.push(["ms", `${filt.ms.join(", ")} · ${msRange()[2][1]}`]);
+  box.innerHTML = items.map(([k, t]) => `<span class="fchip" data-k="${k}"><span class="ft">${esc(t)}</span><button type="button" aria-label="Remove">&times;</button></span>`).join("");
+  box.classList.toggle("hidden", !items.length);
+  for (const c of box.querySelectorAll(".fchip")) {
+    c.querySelector(".ft").onclick = () => openFilters(c.dataset.k);
+    c.querySelector("button").onclick = async () => { if (c.dataset.k === "ms") filt.ms = []; else delete filt.sel[c.dataset.k]; saveFilters(); await renderList(); };
+  }
 }
 
 // ---------------- One reference ----------------
@@ -911,6 +1043,10 @@ async function init() {
   $("btnDemo").onclick = async () => { await db.put("kv", DEMO_REFS, "refs"); state.refs = DEMO_REFS; await renderList(); show("viewList"); };
   $("search").oninput = () => renderList();
   $("onlyDraft").onchange = () => renderList();
+  $("btnFilter").onclick = () => $("fPanel").classList.contains("hidden") ? openFilters() : closeFilters();
+  $("fBack").onclick = closeFilters;
+  $("fShow").onclick = closeFilters;
+  $("fClear").onclick = () => { filt.sel = {}; filt.ms = []; filtersChanged(); };
   $("btnBack").onclick = async () => {
     if (!$("viewList").classList.contains("hidden")) {       // reference list -> projects
       state.project = null; $("search").value = "";
