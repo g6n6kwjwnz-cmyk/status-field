@@ -3,7 +3,7 @@
 // "Mobile Import" (modMovil) loads into the Status report.
 "use strict";
 
-const APP_VERSION = "0.12.1";
+const APP_VERSION = "0.13.0";
 const MAX_PHOTOS = 12;                 // same limit as the Status report (MAX_FOTOS_TOOL)
 const PHOTO_MAX_SIDE = 1600;           // px, enough for a slide and light to send
 const PHOTO_QUALITY = 0.85;
@@ -251,10 +251,10 @@ function ask(html, { input = false, area = false, value = "", ok = "OK", cancel 
     $("dlgYes").textContent = ok;
     $("dlgNo").textContent = cancel;
     $("dlgNo").classList.toggle("hidden", !cancel);
-    $("dlg").classList.remove("hidden");
+    $("dlg").classList.remove("hidden"); syncHistory();
     if (input) setTimeout(() => $("dlgInput").focus(), 50);
     if (area) setTimeout(() => $("dlgArea").focus(), 50);
-    const done = v => { $("dlg").classList.add("hidden"); $("dlgYes").onclick = $("dlgNo").onclick = null; res(v); };
+    const done = v => { $("dlg").classList.add("hidden"); $("dlgYes").onclick = $("dlgNo").onclick = null; syncHistory(); res(v); };
     $("dlgYes").onclick = () => done(area ? $("dlgArea").value : input ? $("dlgInput").value : true);
     $("dlgNo").onclick = () => done(input || area ? null : false);
   });
@@ -266,6 +266,7 @@ function show(view) {
   $("btnSettings").classList.toggle("hidden", view !== "viewList" || state.project !== null);
   $("btnFilter").classList.toggle("hidden", view !== "viewList" || !(state.refs && state.refs.refs.length));
   closeFilters();
+  syncHistory();
   $("footer").classList.toggle("hidden", view !== "viewList" || !state.refs);
   if (view === "viewList") $("title").textContent = state.project === null ? "Projects" : (state.project || "(No project)");
   if (view === "viewList") $("search").placeholder = state.project === null ? "Search project or reference..." : "Search reference, supplier...";
@@ -568,9 +569,53 @@ function openFilters(field) {
   if (field !== undefined) fOpen = field;
   renderFilterPanel();
   $("fPanel").style.top = Math.round(document.querySelector("header.bar").getBoundingClientRect().bottom) + "px";
-  $("fPanel").classList.remove("hidden"); $("fBack").classList.remove("hidden");
+  $("fPanel").classList.remove("hidden"); $("fBack").classList.remove("hidden"); syncHistory();
 }
-function closeFilters() { $("fPanel").classList.add("hidden"); $("fBack").classList.add("hidden"); }
+function closeFilters() { $("fPanel").classList.add("hidden"); $("fBack").classList.add("hidden"); syncHistory(); }
+
+// ---------------- Back (0.13.0) ----------------
+// The phone's back button / back gesture does the same as the app's arrow: it closes the open window
+// (message, filters) or goes back one screen. Only on the Projects screen does it leave the app.
+let popSkip = false;
+function atRoot() {
+  return !$("viewList").classList.contains("hidden") && state.project === null &&
+    $("fPanel").classList.contains("hidden") && $("dlg").classList.contains("hidden");
+}
+function syncHistory() {
+  if (popSkip) return;
+  const guard = !!(history.state && history.state.sf);
+  if (!atRoot() && !guard) history.pushState({ sf: 1 }, "");
+  else if (atRoot() && guard) { popSkip = true; history.back(); }
+}
+async function backAction() {
+  if (!$("dlg").classList.contains("hidden")) { $("dlgNo").click(); return; }
+  if (!$("fPanel").classList.contains("hidden")) { closeFilters(); return; }
+  if (atRoot()) return;
+  if (!$("viewList").classList.contains("hidden")) {       // reference list -> projects
+    state.project = null; $("search").value = "";
+  } else {
+    await flushTexts(); state.current = null;
+  }
+  await renderList(); show("viewList");
+}
+function goBack() { if (history.state && history.state.sf) history.back(); else backAction(); }
+window.addEventListener("popstate", async () => {
+  if (popSkip) { popSkip = false; syncHistory(); return; }
+  await backAction();
+  syncHistory();
+});
+// Swipe right from the left edge of the screen = back (for phones without a back gesture, e.g. iPhone app)
+let swipe0 = null;
+document.addEventListener("touchstart", e => {
+  const t = e.touches[0];
+  swipe0 = e.touches.length === 1 && t.clientX < 28 ? { x: t.clientX, y: t.clientY } : null;
+}, { passive: true });
+document.addEventListener("touchend", e => {
+  if (!swipe0) return;
+  const t = e.changedTouches[0], dx = t.clientX - swipe0.x, dy = Math.abs(t.clientY - swipe0.y);
+  swipe0 = null;
+  if (dx > 70 && dy < 60 && !atRoot()) goBack();
+}, { passive: true });
 // Active filters as small chips under the search box (x = remove)
 function renderActiveFilters() {
   const n = nFilters();
@@ -1047,14 +1092,7 @@ async function init() {
   $("fBack").onclick = closeFilters;
   $("fShow").onclick = closeFilters;
   $("fClear").onclick = () => { filt.sel = {}; filt.ms = []; filtersChanged(); };
-  $("btnBack").onclick = async () => {
-    if (!$("viewList").classList.contains("hidden")) {       // reference list -> projects
-      state.project = null; $("search").value = "";
-    } else {
-      await flushTexts(); state.current = null;
-    }
-    await renderList(); show("viewList");
-  };
+  $("btnBack").onclick = goBack;
   $("btnSettings").onclick = () => {
     $("refsInfo").textContent = state.refs ? `${state.refs.refs.length} references${state.refs.files > 1 ? ` from ${state.refs.files} files (${state.refs.owner})` : ""}${state.refs.created ? ", file of " + new Date(state.refs.created).toLocaleString() : ""}` : "No references loaded.";
     show("viewSettings");
